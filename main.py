@@ -19,27 +19,33 @@ async def on_ready():
 
 
 @bot.tree.command(
-    name="tf145_embed", description="Generate an ASOC TF-145 operational embed."
+    name="embed", description="Creates a custom TF-145 embed message"
 )
-async def tf145_embed(
-    interaction: discord.Interaction, title: str, description: str
+async def custom_embed(
+    interaction: discord.Interaction,
+    channel: discord.TextChannel,
+    title: str,
+    description: str,
+    color: str = "D4AF37",
 ):
+  # Clean up hex color input (remove '#' if they included it)
+  clean_color = color.strip("#")
+  try:
+    embed_color = discord.Color(int(clean_color, 16))
+  except ValueError:
+    embed_color = discord.Color.from_rgb(212, 175, 55)  # Fallback Gold
+
   embed = discord.Embed(
-      title=f"[TF-145] {title}",
-      description=description,
-      color=discord.Color.from_rgb(
-          46, 139, 87
-      ),  # Tactical green accent matching the unit styling
+      title=title, description=description, color=embed_color
   )
-  embed.set_author(
-      name="ASOC // Task Force 145 Command", icon_url=bot.user.avatar.url
-  )
-  embed.set_footer(
-      text="U.S. Army Roleplay Operations • Authorized Personnel Only"
-  )
+  embed.set_footer(text="Task Force 145 Directorate")
   embed.timestamp = discord.utils.utcnow()
 
-  await interaction.response.send_message(embed=embed)
+  # Send the embed to the specified channel instead of the interaction response
+  await channel.send(embed=embed)
+  await interaction.response.send_message(
+      f"Embed successfully deployed to {channel.mention}.", ephemeral=True
+  )
 
 
 @bot.tree.command(
@@ -69,7 +75,7 @@ async def tf145_application(interaction: discord.Interaction):
   embed = discord.Embed(
       title="[TF-145] Processing Application",
       description=app_description,
-      color=discord.Color.from_rgb(15, 15, 15),
+      color=discord.Color.from_rgb(212, 175, 55),
   )
   embed.set_footer(text="Task Force 145 Directorate • Selection & Screening")
 
