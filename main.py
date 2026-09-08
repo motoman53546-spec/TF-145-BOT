@@ -289,21 +289,24 @@ async def background_check(
       if member.joined_at
       else "Unknown"
   )
-  disc_roles_count = len(member.roles) - 1  # Excluding @everyone
+  disc_roles_count = len(member.roles) - 1
+
+  from datetime import datetime, timezone
+
+  disc_age_days = (datetime.now(timezone.utc) - member.created_at).days
 
   # Roblox API Fetching
   roblox_id = "Not Found"
   roblox_display = "N/A"
   roblox_created = "N/A"
-  roblox_age_days = "N/A"
+  roblox_age_days = 0
   roblox_banned = "No"
   roblox_description = "N/A"
-  friends_count = "N/A"
-  followers_count = "N/A"
-  following_count = "N/A"
+  friends_count = 0
+  followers_count = 0
+  following_count = 0
 
   async with aiohttp.ClientSession() as session:
-    # Resolve Username to ID
     payload = {"usernames": [roblox_username], "excludeBannedUsers": False}
     async with session.post(
         "https://users.roblox.com/v1/usernames/users", json=payload
@@ -319,7 +322,6 @@ async def background_check(
           )
 
     if roblox_id != "Not Found":
-      # Get User Details
       async with session.get(
           f"https://users.roblox.com/v1/users/{roblox_id}"
       ) as r_resp:
@@ -328,8 +330,6 @@ async def background_check(
           created_raw = r_data.get("created", "")
           if created_raw:
             roblox_created = created_raw.split("T")[0]
-            from datetime import datetime, timezone
-
             created_dt = datetime.fromisoformat(
                 created_raw.replace("Z", "+00:00")
             )
@@ -343,29 +343,26 @@ async def background_check(
           elif len(roblox_description) > 100:
             roblox_description = roblox_description[:97] + "..."
 
-      # Friends count
       async with session.get(
           f"https://friends.roblox.com/v1/users/{roblox_id}/friends/count"
       ) as f_resp:
         if f_resp.status == 200:
           f_data = await f_resp.json()
-          friends_count = f_data.get("count", "N/A")
+          friends_count = f_data.get("count", 0)
 
-      # Followers count
       async with session.get(
           f"https://friends.roblox.com/v1/users/{roblox_id}/followers/count"
       ) as fo_resp:
         if fo_resp.status == 200:
           fo_data = await fo_resp.json()
-          followers_count = fo_data.get("count", "N/A")
+          followers_count = fo_data.get("count", 0)
 
-      # Following count
       async with session.get(
           f"https://friends.roblox.com/v1/users/{roblox_id}/followings/count"
       ) as fing_resp:
         if fing_resp.status == 200:
           fing_data = await fing_resp.json()
-          following_count = fing_data.get("count", "N/A")
+          following_count = fing_data.get("count", 0)
 
   roblox_link = (
       f"https://www.roblox.com/users/{roblox_id}/profile"
@@ -373,15 +370,48 @@ async def background_check(
       else "N/A"
   )
 
+  # Automated Risk Analysis / Risk Assessment Algorithm
+  risk_level = "🟢 LOW RISK (Good to Accept)"
+  risk_reasons = []
+
+  if roblox_banned == "Yes":
+    risk_level = "🔴 HIGH RISK (Platform Banned)"
+    risk_reasons.append("• Roblox account is currently banned.")
+  if roblox_age_days < 30 and roblox_id != "Not Found":
+    risk_level = "🟡 MEDIUM / 🔴 HIGH RISK (Alt Account Suspected)"
+    risk_reasons.append(
+        f"• Roblox account is very young (~{roblox_age_days} days old)."
+    )
+  if disc_age_days < 14:
+    risk_level = "🟡 MEDIUM / 🔴 HIGH RISK (New Discord Alt)"
+    risk_reasons.append(
+        f"• Discord account is very young (~{disc_age_days} days old)."
+    )
+  if roblox_id == "Not Found":
+    risk_level = "🔴 HIGH RISK (Invalid User)"
+    risk_reasons.append("• Roblox username could not be verified/found.")
+
+  if not risk_reasons:
+    risk_reasons.append(
+        "• All checks passed cleanly. Account age and history look normal."
+    )
+
+  risk_summary = f"**Assessment:** {risk_level}\n" + "\n".join(risk_reasons)
+
   embed = discord.Embed(
       title="[TF-145] Security Background Check Report",
-      color=discord.Color(0x111111),
+      color=discord.Color(
+          0x2E8B57
+          if "LOW" in risk_level
+          else (0xE74C3C if "HIGH" in risk_level else 0xF39C12)
+      ),
   )
   embed.description = (
       f"<:tf145:1546615062276341820> **Comprehensive Dossier & Audit**\n\n"
+      f"🔍 **Automated Risk Analysis**\n{risk_summary}\n\n"
       f"👤 **Discord Profile Information**\n"
-      f"• **User Mention:** {member.mention} (`{member.id}`)\n"
-      f"• **Account Created:** {disc_created}\n"
+      f"• **User:** {member.mention} (`{member.id}`)\n"
+      f"• **Account Created:** {disc_created} (~{disc_age_days} days old)\n"
       f"• **Server Join Date:** {disc_joined}\n"
       f"• **Roles Count:** {disc_roles_count}\n\n"
       f"🎮 **Roblox Account Information**\n"
@@ -400,19 +430,23 @@ async def background_check(
   )
   embed.timestamp = discord.utils.utcnow()
 
-  # Send to Notification Channel in the same message broadcast
+  # Broadcast matching notification format layout to Notification Channel
   notif_channel = interaction.guild.get_channel(NOTIFICATION_CHANNEL_ID)
   if notif_channel:
-    await notif_channel.send(
-        content=(
-            f"<@&{STAFF_ROLE_ID}> Background check executed on"
-            f" {member.mention}:"
-        ),
-        embed=embed,
+    notification_content = (
+        f"[TF-145] New Background Check Audit\n"
+        f"Candidate: {member.mention} (`{member.id}`)\n"
+        f"Channel: <#{interaction.channel.id}>\n"
+        f"Roblox Username: {roblox_username}\n"
+        f"Discord Username: {member}\n"
+        f"Roblox Profile Link: {roblox_link}\n"
+        f"Discord ID: {member.id}\n\n"
+        f"Required Ping: <@&{STAFF_ROLE_ID}>"
     )
+    await notif_channel.send(content=notification_content, embed=embed)
 
   await interaction.followup.send(
-      f"✅ Background check successfully executed and logged to"
+      f"✅ Background check executed and logged with risk analysis to"
       f" <#{NOTIFICATION_CHANNEL_ID}>.",
       ephemeral=True,
   )
