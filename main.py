@@ -3,18 +3,15 @@ import aiohttp
 import discord
 from discord.ext import commands
 
-# Initialize bot with intents
 intents = discord.Intents.all()
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-# Configuration IDs
 SCREENING_CHANNEL_ID = 1546937759065702400
 RESULT_CHANNEL_ID = 1546937814246232075
 NOTIFICATION_CHANNEL_ID = 1546948806560718959
-SUCCESS_CHANNEL_ID = 1546937759065702400  # Target channel for accepted candidates
+SUCCESS_CHANNEL_ID = 1546937759065702400
 STAFF_ROLE_ID = 1546934264619081879
 
-# Allowed Staff Role IDs
 STAFF_ROLE_IDS = [
     1546594126257193070,
     1546593939581309028,
@@ -39,7 +36,6 @@ async def on_message(message: discord.Message):
   if message.author.bot:
     return
 
-  # Check if someone pings the bot in the screening channel with their application
   if message.channel.id == SCREENING_CHANNEL_ID and bot.user in message.mentions:
     notif_channel = message.guild.get_channel(NOTIFICATION_CHANNEL_ID)
     if notif_channel:
@@ -58,7 +54,6 @@ async def on_message(message: discord.Message):
       )
       embed.timestamp = discord.utils.utcnow()
 
-      # Send notification pinging staff
       await notif_channel.send(
           content=f"<@&{STAFF_ROLE_ID}> New screening application submitted!",
           embed=embed,
@@ -67,7 +62,6 @@ async def on_message(message: discord.Message):
   await bot.process_commands(message)
 
 
-# Modal popup for multi-line text input
 class EmbedModal(discord.ui.Modal, title="Create Custom Embed"):
   embed_title = discord.ui.TextInput(
       label="Embed Title",
@@ -95,7 +89,7 @@ class EmbedModal(discord.ui.Modal, title="Create Custom Embed"):
     try:
       embed_color = discord.Color(int(clean_color, 16))
     except ValueError:
-      embed_color = discord.Color.from_rgb(17, 17, 17)  # Fallback Near-black
+      embed_color = discord.Color.from_rgb(17, 17, 17)
 
     embed = discord.Embed(
         title=self.embed_title.value,
@@ -157,10 +151,10 @@ class ScreeningResultModal(discord.ui.Modal, title="Submit Screening Result"):
 
     if self.result_status == "Accepted":
       result_text = f"• Accepted — proceed to <#{SUCCESS_CHANNEL_ID}>"
-      embed_color = discord.Color(0x2E8B57)  # Tactical Green
+      embed_color = discord.Color(0x2E8B57)
     else:
       result_text = "• Denied — you may reapply in 14 days"
-      embed_color = discord.Color(0x111111)  # Near-black
+      embed_color = discord.Color(0x111111)
 
     notes_content = (
         self.reviewer_notes.value
@@ -218,7 +212,6 @@ async def screen_result(
     )
     return
 
-  # Enforce command usage strictly in the results channel
   if interaction.channel.id != RESULT_CHANNEL_ID:
     await interaction.response.send_message(
         f"❌ This command can only be used inside the results channel"
@@ -263,6 +256,169 @@ async def screen_result(
 
 
 @bot.tree.command(
+    name="background_check",
+    description=(
+        "Run a deep public security background check on a candidate and log it."
+    ),
+)
+async def background_check(
+    interaction: discord.Interaction,
+    member: discord.Member,
+    roblox_username: str,
+):
+  is_owner = (
+      interaction.guild and interaction.guild.owner_id == interaction.user.id
+  )
+  has_staff_role = any(
+      role.id in STAFF_ROLE_IDS for role in interaction.user.roles
+  )
+
+  if not is_owner and not has_staff_role:
+    await interaction.response.send_message(
+        "❌ You do not have the required staff role to run background checks.",
+        ephemeral=True,
+    )
+    return
+
+  await interaction.response.defer(ephemeral=True)
+
+  # Discord Data
+  disc_created = member.created_at.strftime("%Y-%m-%d %H:%M:%S")
+  disc_joined = (
+      member.joined_at.strftime("%Y-%m-%d %H:%M:%S")
+      if member.joined_at
+      else "Unknown"
+  )
+  disc_roles_count = len(member.roles) - 1  # Excluding @everyone
+
+  # Roblox API Fetching
+  roblox_id = "Not Found"
+  roblox_display = "N/A"
+  roblox_created = "N/A"
+  roblox_age_days = "N/A"
+  roblox_banned = "No"
+  roblox_description = "N/A"
+  friends_count = "N/A"
+  followers_count = "N/A"
+  following_count = "N/A"
+
+  async with aiohttp.ClientSession() as session:
+    # Resolve Username to ID
+    payload = {"usernames": [roblox_username], "excludeBannedUsers": False}
+    async with session.post(
+        "https://users.roblox.com/v1/usernames/users", json=payload
+    ) as resp:
+      if resp.status == 200:
+        data = await resp.json()
+        if data.get("data"):
+          user_info = data["data"][0]
+          roblox_id = user_info["id"]
+          roblox_display = user_info.get("displayName", roblox_username)
+          roblox_banned = (
+              "Yes" if user_info.get("isBanned", False) else "No"
+          )
+
+    if roblox_id != "Not Found":
+      # Get User Details
+      async with session.get(
+          f"https://users.roblox.com/v1/users/{roblox_id}"
+      ) as r_resp:
+        if r_resp.status == 200:
+          r_data = await r_resp.json()
+          created_raw = r_data.get("created", "")
+          if created_raw:
+            roblox_created = created_raw.split("T")[0]
+            from datetime import datetime, timezone
+
+            created_dt = datetime.fromisoformat(
+                created_raw.replace("Z", "+00:00")
+            )
+            roblox_age_days = (
+                datetime.now(timezone.utc) - created_dt
+            ).days
+
+          roblox_description = r_data.get("description", "")
+          if not roblox_description:
+            roblox_description = "None"
+          elif len(roblox_description) > 100:
+            roblox_description = roblox_description[:97] + "..."
+
+      # Friends count
+      async with session.get(
+          f"https://friends.roblox.com/v1/users/{roblox_id}/friends/count"
+      ) as f_resp:
+        if f_resp.status == 200:
+          f_data = await f_resp.json()
+          friends_count = f_data.get("count", "N/A")
+
+      # Followers count
+      async with session.get(
+          f"https://friends.roblox.com/v1/users/{roblox_id}/followers/count"
+      ) as fo_resp:
+        if fo_resp.status == 200:
+          fo_data = await fo_resp.json()
+          followers_count = fo_data.get("count", "N/A")
+
+      # Following count
+      async with session.get(
+          f"https://friends.roblox.com/v1/users/{roblox_id}/followings/count"
+      ) as fing_resp:
+        if fing_resp.status == 200:
+          fing_data = await fing_resp.json()
+          following_count = fing_data.get("count", "N/A")
+
+  roblox_link = (
+      f"https://www.roblox.com/users/{roblox_id}/profile"
+      if roblox_id != "Not Found"
+      else "N/A"
+  )
+
+  embed = discord.Embed(
+      title="[TF-145] Security Background Check Report",
+      color=discord.Color(0x111111),
+  )
+  embed.description = (
+      f"<:tf145:1546615062276341820> **Comprehensive Dossier & Audit**\n\n"
+      f"👤 **Discord Profile Information**\n"
+      f"• **User Mention:** {member.mention} (`{member.id}`)\n"
+      f"• **Account Created:** {disc_created}\n"
+      f"• **Server Join Date:** {disc_joined}\n"
+      f"• **Roles Count:** {disc_roles_count}\n\n"
+      f"🎮 **Roblox Account Information**\n"
+      f"• **Username / Display:** {roblox_username} / {roblox_display}\n"
+      f"• **Roblox ID:** `{roblox_id}`\n"
+      f"• **Profile Link:** {roblox_link}\n"
+      f"• **Account Created:** {roblox_created} (~{roblox_age_days} days"
+      f" old)\n"
+      f"• **Platform Banned:** {roblox_banned}\n"
+      f"• **Socials:** {friends_count} Friends | {followers_count} Followers |"
+      f" {following_count} Following\n"
+      f"• **Bio/Description:** *{roblox_description}*"
+  )
+  embed.set_footer(
+      text=f"Requested by {interaction.user} • Security & Vetting Directorate"
+  )
+  embed.timestamp = discord.utils.utcnow()
+
+  # Send to Notification Channel in the same message broadcast
+  notif_channel = interaction.guild.get_channel(NOTIFICATION_CHANNEL_ID)
+  if notif_channel:
+    await notif_channel.send(
+        content=(
+            f"<@&{STAFF_ROLE_ID}> Background check executed on"
+            f" {member.mention}:"
+        ),
+        embed=embed,
+    )
+
+  await interaction.followup.send(
+      f"✅ Background check successfully executed and logged to"
+      f" <#{NOTIFICATION_CHANNEL_ID}>.",
+      ephemeral=True,
+  )
+
+
+@bot.tree.command(
     name="tf145_application", description="Post the TF-145 Processing Application."
 )
 async def tf145_application(interaction: discord.Interaction):
@@ -288,5 +444,4 @@ async def tf145_application(interaction: discord.Interaction):
   await interaction.response.send_message(embed=embed)
 
 
-# Run bot using Railway's environment variable
 bot.run(os.getenv("DISCORD_TOKEN"))
