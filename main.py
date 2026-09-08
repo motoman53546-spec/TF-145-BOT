@@ -42,5 +42,39 @@ async def tf145_embed(
   await interaction.response.send_message(embed=embed)
 
 
+@bot.tree.command(
+    name="tf145_application", description="Post the TF-145 Processing Application."
+)
+async def tf145_application(interaction: discord.Interaction):
+  app_description = (
+      "Hey — congratulations on beginning your TF‑145 Processing.\n"
+      "You’re far, but close to joining the Task Force. Follow the instructions"
+      " carefully — incorrect formats will be denied.\n\n"
+      "**Rules**\n"
+      "• All information must be accurate\n"
+      "• Do not DM TF‑145 staff about your application\n"
+      "• Do not ping leadership unless instructed\n"
+      "• Follow the exact format below\n"
+      "• Once submitted, wait for staff to review\n\n"
+      "**Application Format**\n"
+      "1. Candidate Information\n"
+      "Name: \n"
+      "Roblox Username: \n"
+      "Discord Username: \n"
+      "Timezone:\n\n"
+      "**Required Ping**\n"
+      "Ping: @Detachment Sergeant"
+  )
+
+  embed = discord.Embed(
+      title="[TF-145] Processing Application",
+      description=app_description,
+      color=discord.Color.from_rgb(15, 15, 15),
+  )
+  embed.set_footer(text="Task Force 145 Directorate • Selection & Screening")
+
+  await interaction.response.send_message(embed=embed)
+
+
 # Run bot using Railway's environment variable
 bot.run(os.getenv("DISCORD_TOKEN"))
