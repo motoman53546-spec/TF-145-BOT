@@ -150,10 +150,10 @@ class ScreeningResultModal(discord.ui.Modal, title="Submit Screening Result"):
       return
 
     if self.result_status == "Accepted":
-      result_text = f"• Accepted — proceed to <#{SUCCESS_CHANNEL_ID}>"
+      result_text = "# ACCEPTED"
       embed_color = discord.Color(0x2E8B57)
     else:
-      result_text = "• Denied — you may reapply in 14 days"
+      result_text = "# DENIED"
       embed_color = discord.Color(0x111111)
 
     notes_content = (
@@ -258,7 +258,8 @@ async def screen_result(
 @bot.tree.command(
     name="background_check",
     description=(
-        "Run a deep public security background check on a candidate and log it."
+        "Run a public security background check on a candidate including Roblox"
+        " & Discord stats, badges, and risk analysis."
     ),
 )
 async def background_check(
@@ -295,7 +296,7 @@ async def background_check(
 
   disc_age_days = (datetime.now(timezone.utc) - member.created_at).days
 
-  # Roblox API Fetching
+  # Roblox API Data Holders
   roblox_id = "Not Found"
   roblox_display = "N/A"
   roblox_created = "N/A"
@@ -305,6 +306,7 @@ async def background_check(
   friends_count = 0
   followers_count = 0
   following_count = 0
+  badge_count = "N/A"
 
   async with aiohttp.ClientSession() as session:
     payload = {"usernames": [roblox_username], "excludeBannedUsers": False}
@@ -364,13 +366,31 @@ async def background_check(
           fing_data = await fing_resp.json()
           following_count = fing_data.get("count", 0)
 
+      try:
+        cursor = ""
+        b_count = 0
+        while cursor is not None:
+          badge_url = f"https://badges.roblox.com/v1/users/{roblox_id}/badges?limit=100"
+          if cursor:
+            badge_url += f"&cursor={cursor}"
+          async with session.get(badge_url) as b_resp:
+            if b_resp.status == 200:
+              b_data = await b_resp.json()
+              b_count += len(b_data.get("data", []))
+              cursor = b_data.get("nextPageCursor")
+            else:
+              break
+        badge_count = b_count
+      except Exception:
+        badge_count = "Unavailable"
+
   roblox_link = (
       f"https://www.roblox.com/users/{roblox_id}/profile"
       if roblox_id != "Not Found"
       else "N/A"
   )
 
-  # Automated Risk Analysis / Risk Assessment Algorithm
+  # Risk Analysis Algorithm
   risk_level = "🟢 LOW RISK (Good to Accept)"
   risk_reasons = []
 
@@ -393,7 +413,7 @@ async def background_check(
 
   if not risk_reasons:
     risk_reasons.append(
-        "• All checks passed cleanly. Account age and history look normal."
+        "• All security checks passed cleanly. Account metrics look normal."
     )
 
   risk_summary = f"**Assessment:** {risk_level}\n" + "\n".join(risk_reasons)
@@ -421,6 +441,7 @@ async def background_check(
       f"• **Account Created:** {roblox_created} (~{roblox_age_days} days"
       f" old)\n"
       f"• **Platform Banned:** {roblox_banned}\n"
+      f"• **Total Badges:** {badge_count}\n"
       f"• **Socials:** {friends_count} Friends | {followers_count} Followers |"
       f" {following_count} Following\n"
       f"• **Bio/Description:** *{roblox_description}*"
@@ -430,7 +451,6 @@ async def background_check(
   )
   embed.timestamp = discord.utils.utcnow()
 
-  # Broadcast matching notification format layout to Notification Channel
   notif_channel = interaction.guild.get_channel(NOTIFICATION_CHANNEL_ID)
   if notif_channel:
     notification_content = (
