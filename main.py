@@ -18,34 +18,60 @@ async def on_ready():
     print(e)
 
 
+# Modal popup for multi-line text input
+class EmbedModal(discord.ui.Modal, title="Create Custom Embed"):
+  embed_title = discord.ui.TextInput(
+      label="Embed Title",
+      placeholder="Enter the title here...",
+      required=True,
+      max_length=256,
+  )
+
+  embed_description = discord.ui.TextInput(
+      label="Embed Description (Line breaks work here!)",
+      style=discord.TextStyle.paragraph,
+      placeholder=(
+          "Type your description. Press Enter/Return for new lines freely!"
+      ),
+      required=True,
+  )
+
+  def __init__(self, channel, color_hex):
+    super().__init__()
+    self.channel = channel
+    self.color_hex = color_hex
+
+  async def on_submit(self, interaction: discord.Interaction):
+    clean_color = self.color_hex.strip("#")
+    try:
+      embed_color = discord.Color(int(clean_color, 16))
+    except ValueError:
+      embed_color = discord.Color.from_rgb(212, 175, 55)  # Fallback Gold
+
+    embed = discord.Embed(
+        title=self.embed_title.value,
+        description=self.embed_description.value,
+        color=embed_color,
+    )
+    embed.set_footer(text="Task Force 145 Directorate")
+    embed.timestamp = discord.utils.utcnow()
+
+    await self.channel.send(embed=embed)
+    await interaction.response.send_message(
+        f"Embed successfully deployed to {self.channel.mention}.", ephemeral=True
+    )
+
+
 @bot.tree.command(
     name="embed", description="Creates a custom TF-145 embed message"
 )
 async def custom_embed(
     interaction: discord.Interaction,
     channel: discord.TextChannel,
-    title: str,
-    description: str,
     color: str = "D4AF37",
 ):
-  # Clean up hex color input (remove '#' if they included it)
-  clean_color = color.strip("#")
-  try:
-    embed_color = discord.Color(int(clean_color, 16))
-  except ValueError:
-    embed_color = discord.Color.from_rgb(212, 175, 55)  # Fallback Gold
-
-  embed = discord.Embed(
-      title=title, description=description, color=embed_color
-  )
-  embed.set_footer(text="Task Force 145 Directorate")
-  embed.timestamp = discord.utils.utcnow()
-
-  # Send the embed to the specified channel instead of the interaction response
-  await channel.send(embed=embed)
-  await interaction.response.send_message(
-      f"Embed successfully deployed to {channel.mention}.", ephemeral=True
-  )
+  # Opens the popup modal so you get a real text area for line breaks
+  await interaction.response.send_modal(EmbedModal(channel, color))
 
 
 @bot.tree.command(
