@@ -9,6 +9,7 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 SCREENING_CHANNEL_ID = 1546937759065702400
 RESULT_CHANNEL_ID = 1546937814246232075
 NOTIFICATION_CHANNEL_ID = 1546948806560718959
+SCREENING_RESULTS_LOG_CHANNEL_ID = 1546958558225113158
 SUCCESS_CHANNEL_ID = 1546937759065702400
 STAFF_ROLE_ID = 1546934264619081879
 
@@ -149,6 +150,10 @@ class ScreeningResultModal(discord.ui.Modal, title="Submit Screening Result"):
       )
       return
 
+    log_channel = interaction.guild.get_channel(
+        SCREENING_RESULTS_LOG_CHANNEL_ID
+    )
+
     if self.result_status == "Accepted":
       result_text = "# ACCEPTED"
       embed_color = discord.Color(0x2E8B57)
@@ -180,9 +185,16 @@ class ScreeningResultModal(discord.ui.Modal, title="Submit Screening Result"):
     )
     embed.timestamp = discord.utils.utcnow()
 
+    # Send to primary result channel
     await result_channel.send(embed=embed)
+
+    # Also log to the specified screening results log channel if found
+    if log_channel:
+      await log_channel.send(embed=embed)
+
     await interaction.response.send_message(
-        f"✅ Screening result successfully posted to <#{RESULT_CHANNEL_ID}>.",
+        f"✅ Screening result successfully posted to <#{RESULT_CHANNEL_ID}> and"
+        f" logged to <#{SCREENING_RESULTS_LOG_CHANNEL_ID}>.",
         ephemeral=True,
     )
 
