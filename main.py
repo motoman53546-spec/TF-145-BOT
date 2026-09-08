@@ -11,7 +11,14 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 SCREENING_CHANNEL_ID = 1546937759065702400
 RESULT_CHANNEL_ID = 1546937814246232075
 SUCCESS_CHANNEL_ID = 1546937759065702400  # Target channel for accepted candidates
-STAFF_ROLE_ID = 1546934264619081879
+
+# Allowed Staff Role IDs (includes the new list and the original one)
+STAFF_ROLE_IDS = [
+    1546594126257193070,
+    1546593939581309028,
+    1546593359403950184,
+    1546934264619081879,
+]
 
 
 @bot.event
@@ -158,13 +165,28 @@ class ScreeningResultModal(discord.ui.Modal, title="Submit Screening Result"):
     name="screen_result",
     description="Post a candidate screening result to the results channel.",
 )
-@discord.app_commands.checks.has_role(STAFF_ROLE_ID)
 async def screen_result(
     interaction: discord.Interaction,
     member: discord.Member,
     roblox_username: str,
     result: str,
 ):
+  # Check if user is the server owner OR has any of the designated staff roles
+  is_owner = (
+      interaction.guild and interaction.guild.owner_id == interaction.user.id
+  )
+  has_staff_role = any(
+      role.id in STAFF_ROLE_IDS for role in interaction.user.roles
+  )
+
+  if not is_owner and not has_staff_role:
+    await interaction.response.send_message(
+        "❌ You do not have the required staff role to execute screening"
+        " results.",
+        ephemeral=True,
+    )
+    return
+
   if interaction.channel.id != SCREENING_CHANNEL_ID:
     await interaction.response.send_message(
         f"❌ This command can only be used inside <#{SCREENING_CHANNEL_ID}>.",
@@ -206,20 +228,6 @@ async def screen_result(
             interaction.user,
         )
     )
-
-
-@screen_result.error
-async def screen_result_error(
-    interaction: discord.Interaction, error: discord.app_commands.AppCommandError
-):
-  if isinstance(error, discord.app_commands.MissingRole):
-    await interaction.response.send_message(
-        "❌ You do not have the required staff role to execute screening"
-        " results.",
-        ephemeral=True,
-    )
-  else:
-    raise error
 
 
 @bot.tree.command(
