@@ -10,9 +10,11 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 # Configuration IDs
 SCREENING_CHANNEL_ID = 1546937759065702400
 RESULT_CHANNEL_ID = 1546937814246232075
+NOTIFICATION_CHANNEL_ID = 1546948806560718959
 SUCCESS_CHANNEL_ID = 1546937759065702400  # Target channel for accepted candidates
+STAFF_ROLE_ID = 1546934264619081879
 
-# Allowed Staff Role IDs (includes the new list and the original one)
+# Allowed Staff Role IDs
 STAFF_ROLE_IDS = [
     1546594126257193070,
     1546593939581309028,
@@ -30,6 +32,39 @@ async def on_ready():
     print(f"Synced {len(synced)} command(s).")
   except Exception as e:
     print(e)
+
+
+@bot.event
+async def on_message(message: discord.Message):
+  if message.author.bot:
+    return
+
+  # Check if someone pings the bot in the screening channel with their application
+  if message.channel.id == SCREENING_CHANNEL_ID and bot.user in message.mentions:
+    notif_channel = message.guild.get_channel(NOTIFICATION_CHANNEL_ID)
+    if notif_channel:
+      embed = discord.Embed(
+          title="[TF-145] New Screening Application",
+          description=(
+              f"**Candidate:** {message.author.mention}"
+              f" (`{message.author.id}`)\n**Channel:**"
+              f" {message.channel.mention}\n\n**Application"
+              f" Preview:**\n{message.content[:900]}"
+          ),
+          color=discord.Color(0x111111),
+      )
+      embed.set_footer(
+          text="Task Force 145 Security Directorate • Notification System"
+      )
+      embed.timestamp = discord.utils.utcnow()
+
+      # Send notification pinging staff
+      await notif_channel.send(
+          content=f"<@&{STAFF_ROLE_ID}> New screening application submitted!",
+          embed=embed,
+      )
+
+  await bot.process_commands(message)
 
 
 # Modal popup for multi-line text input
@@ -120,7 +155,6 @@ class ScreeningResultModal(discord.ui.Modal, title="Submit Screening Result"):
       )
       return
 
-    # Determine result description line based on choice
     if self.result_status == "Accepted":
       result_text = f"• Accepted — proceed to <#{SUCCESS_CHANNEL_ID}>"
       embed_color = discord.Color(0x2E8B57)  # Tactical Green
@@ -134,7 +168,6 @@ class ScreeningResultModal(discord.ui.Modal, title="Submit Screening Result"):
         else "No notes provided."
     )
 
-    # Build the screening result embed matching your format
     embed = discord.Embed(
         title="[TF-145] Screening Result", color=embed_color
     )
@@ -153,7 +186,6 @@ class ScreeningResultModal(discord.ui.Modal, title="Submit Screening Result"):
     )
     embed.timestamp = discord.utils.utcnow()
 
-    # Post to the designated results channel
     await result_channel.send(embed=embed)
     await interaction.response.send_message(
         f"✅ Screening result successfully posted to <#{RESULT_CHANNEL_ID}>.",
@@ -171,7 +203,6 @@ async def screen_result(
     roblox_username: str,
     result: str,
 ):
-  # Check if user is the server owner OR has any of the designated staff roles
   is_owner = (
       interaction.guild and interaction.guild.owner_id == interaction.user.id
   )
@@ -187,9 +218,11 @@ async def screen_result(
     )
     return
 
-  if interaction.channel.id != SCREENING_CHANNEL_ID:
+  # Enforce command usage strictly in the results channel
+  if interaction.channel.id != RESULT_CHANNEL_ID:
     await interaction.response.send_message(
-        f"❌ This command can only be used inside <#{SCREENING_CHANNEL_ID}>.",
+        f"❌ This command can only be used inside the results channel"
+        f" (<#{RESULT_CHANNEL_ID}>).",
         ephemeral=True,
     )
     return
@@ -201,7 +234,6 @@ async def screen_result(
     )
     return
 
-  # Fetch Roblox ID & Link
   roblox_id = "Not Found"
   roblox_link = "N/A"
 
